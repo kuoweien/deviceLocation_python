@@ -118,34 +118,39 @@ def checkisnotConnect(dict_last):
     return dict_XID_status
 
 
-            
-        
-    
 
 #撈設備
-connect_time=[]
-connect_XID=[]
-connect_RSSI=[]
-
-
 aUpload_newupdatetime, aUpload_timeurl = getNewUpdatetime(server,uploadXID)
 a_rawdata=getRawList(server,uploadXID,aUpload_timeurl)
 dict_XIDtrace=getUploadXIDDict('7d951000',a_rawdata)
 list_xids=getConnectDevice(dict_XIDtrace)
-dict_laststaus=getLastStatus(dict_XIDtrace)
-
-str_status=checkisnotConnect(dict_laststaus)
+dict_lasttime=getLastStatus(dict_XIDtrace)
+dict_status=checkisnotConnect(dict_lasttime)
 
 
 a=datetime.datetime.now()
 
-
-
-
-
-
-
-                                   
-
-
+for key in dict_lasttime:
+    if len(dict_lasttime[key])>=1: #時間若有兩個或以上 最後一個才是disconnect
+        index=len(dict_lasttime[key])-1
+        time=dict_lasttime[key][index]
+        
+    elif len(dict_lasttime[key])==0:           
+        time=dict_lasttime[key]
+        
+    nowtime=datetime.datetime.now()
+    datetime_str=aUpload_newupdatetime.split(' ')[0]+' '+time
+    
+    laststatus_datetime = datetime.datetime.strptime(datetime_str, '%Y-%m-%d %H:%M:%S')
+    
+    minustime=nowtime-laststatus_datetime #現在時間減最後量測時間
+    minustime_str=str(datetime.timedelta(seconds=minustime.seconds)) #秒轉字串
+    minustime_str=minustime_str.split(':')[0]+'H '+ minustime_str.split(':')[1]+'M ' + minustime_str.split(':')[2]+'S'
+    
+    if minustime.seconds >= 300:
+        print('{}: Disconnect over {} minutes (Last time: {})'.format(key, minustime_str, time))
+        
+    elif minustime.seconds < 300:
+        print('{}: Disconnect Not over 5 minutes'.format(key))
+    
 
