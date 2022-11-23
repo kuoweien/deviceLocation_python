@@ -13,29 +13,27 @@ import numpy as np
 import pandas as pd
 import datetime
 
-server='xds'
-uploadXID='7d951000'
-# 876a1000 
-XID='0300005C'
-# 老師手錶
 
-# Connecting代表嘗試連線
-# Connected代表完成連線
-# Disconnected代表斷線
 def getRawList(server,XID,updateurl): 
     try: 
         if not updateurl:
             urlstart="http://"+server+".ym.edu.tw/"+XID       
         if updateurl:
-            urlstart="http://"+server+".ym.edu.tw/"+XID+"/"+updateurl 
+            urlstart="http://"+server+".ym.edu.tw/"+XID+'/'+XID+"_"+updateurl+'.txt'
+            
+        r = requests.get(urlstart)
+        rawtxt=r.text
+        rawtxt=rawtxt.replace("/","-")
+        rawlist=rawtxt.split("\r\n")
+        return rawlist
+    
     except:
             print('Error: {}. {}, line: {}'.format(sys.exc_info()[0],sys.exc_info()[1],sys.exc_info()[2].tb_lineno))   
-    r = requests.get(urlstart)
-    rawtxt=r.text
-    rawtxt=rawtxt.replace("/","-")
-    rawlist=rawtxt.split("\r\n")
-    return rawlist
     
+    
+#查看是否有新上傳資料，updatetime_url為最新的上傳時間連結，帶入def getRawList的dateurl
+
+
 #找今日是否有上傳資料 output updatetime
 def getNewUpdatetime(server,uploadXID):
     try:
@@ -54,103 +52,157 @@ def getNewUpdatetime(server,uploadXID):
     return newupdatetime_str,updatetime_url
 
 
+# 找BLE連接狀況，並放進dict
+def getUploadStateDict(rawdata):
+    data=[]
+    for i in range(len(rawdata)):
+        if '0300005C' in rawdata[i]:
+            if 'BLE disconnected' in rawdata[i] or 'BLE connected' in rawdata[i]:
+                time=(rawdata[i].split(' ')[1]).split(',')[0]
+                state=rawdata[i].split(' ')[2]+' '+(rawdata[i].split(' ')[3]).split('=')[0]
+                temp_dict=dict(Time=time,State=state)
+                data.append(temp_dict)    
+        dict_XID=dict(XID='0300005C',Data=data)    
+    return dict_XID
+
+
+
 def getUploadXIDDict(serverXID,rawdata):#input機上盒設備跟原始資料
     df=pd.DataFrame()
+    XIDstatusTime=[]
     connected_time=0
     disconnected_time=0
-    dict_XID={}
     for i in range(len(rawdata)):#加入設備編號
                                 
         if 'BLE connected' in rawdata[i]:    
             XID=(rawdata[i].split(' ')[4])
             connected_time=(rawdata[i].split(' ')[1]).split(',')[0]
-            if XID not in dict_XID:
-                dict_XID[XID]=[[connected_time]]
-                continue
+            # dic_time={str(XID):[connected_time]}
+            df=df.append({
+                'XID':XID,
+                'Time':connected_time,
+                'Status':'BLE connected'                
+                }, ignore_index=True)
             
-            if XID in dict_XID:
-                dict_XID[XID].append([connected_time])
-                continue
-                
             
         if 'BLE disconnected' in rawdata[i]:
             XID=(rawdata[i].split(' ')[4])
             disconnected_time=(rawdata[i].split(' ')[1]).split(',')[0]
-            if XID not in dict_XID:
-                dict_XID[XID]=disconnected_time
-                continue
-                
-            elif XID in dict_XID:
-                lg=len(dict_XID[XID])-1
-                dict_XID[XID][lg].append(disconnected_time)
-                continue
-
+            # if connected_time==0:#如果connect_time是空值（先掃到disconnect的狀況）
+            #     dic_time={str(XID):[0,disconnected_time]}
+            # if connected_time!=0:               
+            #     dic_time[str(XID)].append(disconnected_time)
+            # dictX['ConnectXID'].append(dic_time)
+            df=df.append({
+                'XID':XID,
+                'Time':disconnected_time,
+                'Status':'BLE disconnected'                
+                }, ignore_index=True)
             
             continue
-          
-    return dict_XID
-
-def getConnectDevice(dict_XID):
-    XIDs=[]
-    for key in dict_XID:
-        XIDs.append(key)
-    return XIDs
-
-def getLastStatus(dict_XID):
-    dict_XID_laststatus={}
-
-    for key in dict_XID:
-        lg=len(dict_XID[key])-1
-        dict_XID_laststatus[key]= dict_XID[key][lg]
-        
-    return dict_XID_laststatus
-
-def checkisnotConnect(dict_last):
-    dict_XID_status={}
     
-    for key in dict_last:
-        if len(dict_last[key])==1:
-            dict_XID_status[key]='Connected'
+    '''避免刪除 先保留
+        if 'BLE connected' in rawdata[i] and '0165005C' in rawdata[i]:    
+            XID=(rawdata[i].split(' ')[4])
+            connected_time=(rawdata[i].split(' ')[1]).split(',')[0]
+
             
-        elif len(dict_last[key])>1:
-            dict_XID_status[key]='Disconnected'
-    
-    return dict_XID_status
+        if 'BLE disconnected' in rawdata[i] and '0165005C' in rawdata[i]:
+            disconnected_time=(rawdata[i].split(' ')[1]).split(',')[0]
+            time=[connected_time,disconnected_time]
+            aXIDTime.append(time)
+        '''
+        
 
+          
+    return df
 
+server='xds'
+uploadXID='7F571000'
+
+# Connecting代表嘗試連線, Connected代表完成連線, Disconnected代表斷線
 
 #撈設備
-aUpload_newupdatetime, aUpload_timeurl = getNewUpdatetime(server,uploadXID)
-a_rawdata=getRawList(server,uploadXID,aUpload_timeurl)
-dict_XIDtrace=getUploadXIDDict('7d951000',a_rawdata)
-list_xids=getConnectDevice(dict_XIDtrace)
-dict_lasttime=getLastStatus(dict_XIDtrace)
-dict_status=checkisnotConnect(dict_lasttime)
+connect_time=[]
+connect_XID=[]
+connect_RSSI=[]
+
+df_thelastStatus=pd.DataFrame()
 
 
-a=datetime.datetime.now()
+# Get new upload time
+try:
+    update_rawlist=getRawList(server,uploadXID,'')
+    for i in range(len(update_rawlist)):
+        
+        if 'txt' not in update_rawlist[i]:
+            continue
+        
+        elif 'txt' in update_rawlist[i]:
+            uploadtime_str=update_rawlist[i].split("  ")[0]  
+            upload_date = (uploadtime_str.split(' ')[0]).replace('-', '')
+            break
+except:
+    print('Error: {}. {}, line: {}'.format(sys.exc_info()[0],sys.exc_info()[1],sys.exc_info()[2].tb_lineno))
 
-for key in dict_lasttime:
-    if len(dict_lasttime[key])>=1: #時間若有兩個或以上 最後一個才是disconnect
-        index=len(dict_lasttime[key])-1
-        time=dict_lasttime[key][index]
+
+rawlist=getRawList(server,uploadXID,upload_date)
+
+all_device = []
+dict_XID = {}
+
+for i in range(len(rawlist)-1, -1, -1):
+    if 'BLE' in rawlist[i]:
+        situation = (rawlist[i].split(',')[1]).split('=')[0].lstrip()
+        xid = (rawlist[i].split(',')[1]).split('=')[1].lstrip()
+        time = (rawlist[i].split(',')[0]).split(' ')[1].lstrip()
         
-    elif len(dict_lasttime[key])==0:           
-        time=dict_lasttime[key]
+        if xid not in all_device:
+            all_device.append(xid)
+            # dict_XID = {xid : {'BLE Connected':[], 'BLE Disconnected' : [], 'BLE connecting' : []}}            
+            dict_XID[xid] = {'BLE connected':[], 'BLE disconnected' : [], 'BLE connecting' : []}
+            
+            if situation=='BLE connected':
+                dict_XID[xid]['BLE connected'].append(time)
+                
+            elif situation=='BLE disconnected':
+                dict_XID[xid]['BLE disconnected'].append(time)
+                
+            elif situation=='BLE connecting':
+                dict_XID[xid]['BLE connecting'].append(time)
         
-    nowtime=datetime.datetime.now()
-    datetime_str=aUpload_newupdatetime.split(' ')[0]+' '+time
-    
-    laststatus_datetime = datetime.datetime.strptime(datetime_str, '%Y-%m-%d %H:%M:%S')
-    
-    minustime=nowtime-laststatus_datetime #現在時間減最後量測時間
-    minustime_str=str(datetime.timedelta(seconds=minustime.seconds)) #秒轉字串
-    minustime_str=minustime_str.split(':')[0]+'H '+ minustime_str.split(':')[1]+'M ' + minustime_str.split(':')[2]+'S'
-    
-    if minustime.seconds >= 300:
-        print('{}: Disconnect over {} minutes (Last time: {})'.format(key, minustime_str, time))
         
-    elif minustime.seconds < 300:
-        print('{}: Disconnect Not over 5 minutes'.format(key))
+        elif xid in all_device:
+            if situation=='BLE connected' and len(dict_XID[xid]['BLE connected'])==0:
+                dict_XID[xid]['BLE connected'].append(time)
+                
+            elif situation=='BLE disconnected' and len(dict_XID[xid]['BLE disconnected'])==0:
+                dict_XID[xid]['BLE disconnected'].append(time)
+                
+            elif situation=='BLE connecting' and len(dict_XID[xid]['BLE connecting'])==0:
+                dict_XID[xid]['BLE connecting'].append(time)
+
+df = pd.DataFrame(data=dict_XID)
+df = df.T
+
+print('Now: {}'.format(datetime.datetime.now()))
+print('XID: {}'.format(uploadXID))
+print('Update Date: {}'.format(upload_date))
+print('Update Time:')
+print('')
+print(df)
+
     
+
+
+
+
+
+
+
+
+
+                                   
+
+
 
